@@ -1,0 +1,19 @@
+{
+  "name": "@slorm/slorm",
+  "version": "0.0.1",
+  "description": "A Slonik kind of ORM",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NicolasCaous/slorm.git"
+  },
+  "author": "Nicolas Caous Fernandes",
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/NicolasCaous/slorm/issues"
+  },
+  "homepage": "https://github.com/NicolasCaous/slorm#readme"
+}
