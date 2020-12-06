@@ -2,7 +2,7 @@
   "name": "@slorm/slorm",
   "version": "0.0.1",
   "description": "A Slonik kind of ORM",
-  "main": "index.js",
+  "main": "./src/index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
   },
@@ -15,5 +15,14 @@
   "bugs": {
     "url": "https://github.com/NicolasCaous/slorm/issues"
   },
-  "homepage": "https://github.com/NicolasCaous/slorm#readme"
+  "homepage": "https://github.com/NicolasCaous/slorm#readme",
+  "dependencies": {
+    "moment-timezone": "^0.5.32",
+    "pg": "^8.5.1",
+    "slonik": "^23.1.0",
+    "uuid": "^8.3.1"
+  },
+  "optionalDependencies": {
+    "pg-native": "^3.0.0"
+  }
 }
