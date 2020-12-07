@@ -18,11 +18,7 @@
   "homepage": "https://github.com/NicolasCaous/slorm#readme",
   "dependencies": {
     "moment-timezone": "^0.5.32",
-    "pg": "^8.5.1",
     "slonik": "^23.1.0",
     "uuid": "^8.3.1"
-  },
-  "optionalDependencies": {
-    "pg-native": "^3.0.0"
   }
 }
