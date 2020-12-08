@@ -98,7 +98,7 @@ class HistoricScaffoldModel extends SlormModel {
     );
 
     return [
-      super.toSQL(args),
+      ...super.toSQL(args),
       joinSqlTemplates(
         [
           sql`CREATE`,
@@ -116,6 +116,11 @@ class HistoricScaffoldModel extends SlormModel {
   }
 
   async _save(trx, override) {
+    assert(
+      this.constructor._history !== undefined,
+      "setUpHistory must be called before toSQL"
+    );
+
     let newRow = this.id === undefined;
 
     if (this.id !== undefined) {

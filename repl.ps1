@@ -1,0 +1,1 @@
+node --experimental-repl-await -r .\cli\repl.js
