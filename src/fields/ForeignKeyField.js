@@ -34,6 +34,10 @@ class ForeignKeyField extends SlormField {
 
     this.table = args.table;
     this.column = args.column;
+
+    this.fromDb = this.table[this.column].fromDb;
+    this.toDb = this.table[this.column].toDb;
+    this.isDifferent = this.table[this.column].isDifferent;
   }
 }
 
