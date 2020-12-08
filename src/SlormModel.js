@@ -14,13 +14,27 @@ class SlormModel {
   constructor(args) {
     args = args !== undefined ? args : {};
 
+    let columnMapping = {};
+
+    for (let attr in this.constructor) {
+      if (
+        this.constructor[attr] instanceof SlormField &&
+        this.constructor[attr].columnName !== undefined
+      )
+        columnMapping[this.constructor[attr].columnName.sql] = attr;
+    }
+
     for (let attr in args) {
+      let arg = args[attr];
+      let attrSQL = sql`${sql.identifier([attr])}`.sql;
+      if (attrSQL in columnMapping) attr = columnMapping[attrSQL];
+
       assert(
         attr in this.constructor,
         `${attr} is not a field in ${this.constructor}`
       );
 
-      this[attr] = this.constructor[attr].fromDb(args[attr]);
+      this[attr] = this.constructor[attr].fromDb(arg);
     }
   }
 
