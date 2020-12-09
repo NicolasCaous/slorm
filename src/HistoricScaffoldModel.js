@@ -2,6 +2,7 @@
 
 const assert = require("assert");
 const uuid = require("uuid");
+const { sql } = require("slonik");
 
 const joinSqlTemplates = require("./utils/join_sql_templates");
 const ScaffoldModel = require("./ScaffoldModel");
