@@ -4,6 +4,7 @@ global.sql = slonik.sql;
 global.pool = slonik.createPool(
   "postgresql://postgres:postgres@localhost:5432/slorm",
   {
+    typeParsers: [],
     maximumPoolSize: 10,
   }
 );
