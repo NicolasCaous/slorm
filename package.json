@@ -1,6 +1,6 @@
 {
   "name": "@slorm/slorm",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "description": "A Slonik kind of ORM",
   "main": "./src/index.js",
   "scripts": {
