@@ -4,7 +4,9 @@
   "description": "A Slonik kind of ORM",
   "main": "./src/index.js",
   "scripts": {
-    "test": "npx jest"
+    "coverage": "npx nyc report --reporter=text-lcov | coveralls",
+    "stryker": "npx stryker run",
+    "test": "npx nyc --reporter=html --reporter=text mocha --check-leaks --require test/_helper.js"
   },
   "repository": {
     "type": "git",
@@ -23,6 +25,10 @@
     "uuid": "^8.3.1"
   },
   "devDependencies": {
-    "jest": "^26.6.3"
+    "@stryker-mutator/core": "^4.2.0",
+    "@stryker-mutator/mocha-runner": "^4.2.0",
+    "chai": "^4.2.0",
+    "mocha": "^8.2.1",
+    "nyc": "^15.1.0"
   }
 }

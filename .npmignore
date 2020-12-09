@@ -3,3 +3,7 @@ node_modules
 docker-compose.yml
 repl.ps1
 test
+reports
+.stryker-tmp
+.nyc_output
+coverage
