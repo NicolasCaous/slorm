@@ -4,48 +4,43 @@ const assert = require("assert");
 const { sql } = require("slonik");
 
 const escape = require("../utils/escape");
+const isObject = require("../utils/is_object");
+const isSQLTemplate = require("../utils/is_sql_template");
 const joinSqlTemplates = require("../utils/join_sql_templates");
 
 class SlormConstraint {
   constructor(args) {
-    assert(typeof args === "object", "args must be an object");
+    if (args === undefined) args = {};
+
+    assert(isObject(args), "args must be an object");
 
     let constraintCount = 0;
 
-    this.constraintName =
-      "constraintName" in args ? args.constraintName : undefined;
+    this.constraintName = args.constraintName;
     if (this.constraintName !== undefined)
       assert(
-        typeof this.constraintName === "object" &&
-          "type" in this.constraintName &&
-          this.constraintName.type === "SLONIK_TOKEN_SQL",
+        isSQLTemplate(this.constraintName),
         "constraintName must be a slonik sql template"
       );
 
-    this.deferrable = "deferrable" in args ? args.deferrable : undefined;
+    this.deferrable = args.deferrable;
     if (this.deferrable !== undefined)
       assert(
         typeof this.deferrable === "boolean",
         "deferrable must be a boolean"
       );
 
-    this.deferrableImmediate =
-      "deferrableImmediate" in args ? args.deferrableImmediate : undefined;
+    this.deferrableImmediate = args.deferrableImmediate;
     if (this.deferrableImmediate !== undefined)
       assert(
         typeof this.deferrableImmediate === "boolean",
         "deferrableImmediate must be a boolean"
       );
 
-    this.check = "check" in args ? args.check : undefined;
+    this.check = args.check;
     if (this.check !== undefined) {
       ++constraintCount;
-      assert(
-        typeof this.check === "object" &&
-          "type" in this.check &&
-          this.check.type === "SLONIK_TOKEN_SQL",
-        "check must be a slonik sql template"
-      );
+      assert(isSQLTemplate(this.check), "check must be a slonik sql template");
       assert(
         this.deferrable === undefined && this.deferrableImmediate === undefined,
         "check constraints cannot be marked deferrable"
@@ -59,7 +54,7 @@ class SlormConstraint {
       "checkNoInherit must be a boolean"
     );
 
-    this.unique = "unique" in args ? args.unique : undefined;
+    this.unique = args.unique;
     if (this.unique !== undefined) {
       ++constraintCount;
       assert(
@@ -70,15 +65,13 @@ class SlormConstraint {
       assert(this.unique.length > 0, "unique can't be an empty array");
       this.unique.forEach((uniqueColumn, i) => {
         assert(
-          typeof uniqueColumn === "object" &&
-            "type" in uniqueColumn &&
-            uniqueColumn.type === "SLONIK_TOKEN_SQL",
+          isSQLTemplate(uniqueColumn),
           `uniqueColumn ${i} (${uniqueColumn}) must be a slonik sql template`
         );
       });
     }
 
-    this.primaryKey = "primaryKey" in args ? args.primaryKey : undefined;
+    this.primaryKey = args.primaryKey;
     if (this.primaryKey !== undefined) {
       ++constraintCount;
       assert(
@@ -89,15 +82,13 @@ class SlormConstraint {
       assert(this.primaryKey.length > 0, "primaryKey can't be an empty array");
       this.primaryKey.forEach((primaryKeyColumn, i) => {
         assert(
-          typeof primaryKeyColumn === "object" &&
-            "type" in primaryKeyColumn &&
-            primaryKeyColumn.type === "SLONIK_TOKEN_SQL",
+          isSQLTemplate(primaryKeyColumn),
           `primaryKeyColumn ${i} (${primaryKeyColumn}) must be a slonik sql template`
         );
       });
     }
 
-    this.exclude = "exclude" in args ? args.exclude : undefined;
+    this.exclude = args.exclude;
     if (this.exclude !== undefined) {
       ++constraintCount;
       assert(
@@ -108,33 +99,27 @@ class SlormConstraint {
       assert(this.exclude.length > 0, "exclude can't be an empty array");
       this.exclude.forEach((excludeExpression, i) => {
         assert(
-          typeof excludeExpression === "object" &&
-            "type" in excludeExpression &&
-            excludeExpression.type === "SLONIK_TOKEN_SQL",
+          isSQLTemplate(excludeExpression),
           `excludeExpression ${i} (${excludeExpression}) must be a slonik sql template`
         );
       });
     }
 
-    this.indexMethod = "indexMethod" in args ? args.indexMethod : undefined;
+    this.indexMethod = args.indexMethod;
     if (this.indexMethod !== undefined)
       assert(
-        typeof this.indexMethod === "object" &&
-          "type" in this.indexMethod &&
-          this.indexMethod.type === "SLONIK_TOKEN_SQL",
+        isSQLTemplate(this.indexMethod),
         "indexMethod must be a slonik sql template"
       );
 
-    this.predicate = "predicate" in args ? args.predicate : undefined;
+    this.predicate = args.predicate;
     if (this.predicate !== undefined)
       assert(
-        typeof this.predicate === "object" &&
-          "type" in this.predicate &&
-          this.predicate.type === "SLONIK_TOKEN_SQL",
+        isSQLTemplate(this.predicate),
         "predicate must be a slonik sql template"
       );
 
-    this.foreignKey = "foreignKey" in args ? args.foreignKey : undefined;
+    this.foreignKey = args.foreignKey;
     if (this.foreignKey !== undefined) {
       ++constraintCount;
       assert(
@@ -145,24 +130,20 @@ class SlormConstraint {
       assert(this.foreignKey.length > 0, "foreignKey can't be an empty array");
       this.foreignKey.forEach((column, i) => {
         assert(
-          typeof column === "object" &&
-            "type" in column &&
-            column.type === "SLONIK_TOKEN_SQL",
+          isSQLTemplate(column),
           `column ${i} (${column}) must be a slonik sql template`
         );
       });
     }
 
-    this.refTable = "refTable" in args ? args.refTable : undefined;
+    this.refTable = args.refTable;
     if (this.foreignKey !== undefined)
       assert(
-        typeof this.refTable === "object" &&
-          "type" in this.refTable &&
-          this.refTable.type === "SLONIK_TOKEN_SQL",
+        isSQLTemplate(this.refTable),
         "refTable must be a slonik sql template and must not be undefined"
       );
 
-    this.refColumn = "refColumn" in args ? args.refColumn : undefined;
+    this.refColumn = args.refColumn;
     if (this.refColumn !== undefined) {
       assert(
         this.refColumn instanceof Array,
@@ -172,9 +153,7 @@ class SlormConstraint {
       assert(this.refColumn.length > 0, "refColumn can't be an empty array");
       this.refColumn.forEach((column, i) => {
         assert(
-          typeof column === "object" &&
-            "type" in column &&
-            column.type === "SLONIK_TOKEN_SQL",
+          isSQLTemplate(column),
           `column ${i} (${column}) must be a slonik sql template`
         );
       });
@@ -183,9 +162,7 @@ class SlormConstraint {
     this.refMatch = "refMatch" in args ? args.refMatch : undefined;
     if (this.refMatch !== undefined)
       assert(
-        typeof this.refMatch === "object" &&
-          "type" in this.refMatch &&
-          this.refMatch.type === "SLONIK_TOKEN_SQL" &&
+        isSQLTemplate(this.refMatch) &&
           ["MATCH FULL", "MATCH PARTIAL", "MATCH SIMPLE"].includes(
             this.refMatch.sql
           ),
@@ -195,9 +172,7 @@ class SlormConstraint {
     this.refOnDelete = "refOnDelete" in args ? args.refOnDelete : undefined;
     if (this.refOnDelete !== undefined)
       assert(
-        typeof this.refOnDelete === "object" &&
-          "type" in this.refOnDelete &&
-          this.refOnDelete.type === "SLONIK_TOKEN_SQL" &&
+        isSQLTemplate(this.refOnDelete) &&
           [
             "NO ACTION",
             "RESTRICT",
@@ -211,9 +186,7 @@ class SlormConstraint {
     this.refOnUpdate = "refOnUpdate" in args ? args.refOnUpdate : undefined;
     if (this.refOnUpdate !== undefined)
       assert(
-        typeof this.refOnUpdate === "object" &&
-          "type" in this.refOnUpdate &&
-          this.refOnUpdate.type === "SLONIK_TOKEN_SQL" &&
+        isSQLTemplate(this.refOnUpdate) &&
           [
             "NO ACTION",
             "RESTRICT",
@@ -233,9 +206,7 @@ class SlormConstraint {
       "indexParameters" in args ? args.indexParameters : undefined;
     if (this.indexParameters !== undefined)
       assert(
-        typeof this.indexParameters === "object" &&
-          "type" in this.indexParameters &&
-          this.indexParameters.type === "SLONIK_TOKEN_SQL",
+        isSQLTemplate(this.indexParameters),
         "indexParameters must be a slonik sql template"
       );
   }
@@ -275,6 +246,8 @@ class SlormConstraint {
   { column_name | ( expression ) } [ opclass ] [ ASC | DESC ] [ NULLS { FIRST | LAST } ]
   */
   toSQL(constraintName) {
+    if (this.constraintName === undefined && constraintName !== undefined)
+      this.constraintName = constraintName;
     return joinSqlTemplates(
       [
         sql`${

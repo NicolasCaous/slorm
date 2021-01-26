@@ -4,8 +4,8 @@ const assert = require("assert");
 const uuid = require("uuid");
 const { sql } = require("slonik");
 
+const BooleanField = require("./fields/BooleanField");
 const joinSqlTemplates = require("./utils/join_sql_templates");
-const ScaffoldModel = require("./ScaffoldModel");
 const SlormModel = require("./SlormModel");
 const SlormField = require("./fields/SlormField");
 const TimestampField = require("./fields/TimestampField");
@@ -41,13 +41,15 @@ class HistoricScaffoldModel extends SlormModel {
 
     this._history = ((className) =>
       ({
-        [className]: class extends ScaffoldModel {
+        [className]: class extends SlormModel {
           static tableName = historyTableName;
 
           static hid = new UUIDField({
             default: uuid.v4,
             primaryKey: true,
           });
+          static updated_by = new UUIDField({ null: true });
+          static deleted = new BooleanField({ default: sql`false` });
         },
       }[className]))(this.name + "History");
 
@@ -116,13 +118,14 @@ class HistoricScaffoldModel extends SlormModel {
     ];
   }
 
-  async _save(trx, override) {
+  async _save(trx, override, author) {
     assert(
       this.constructor._history !== undefined,
-      "setUpHistory must be called before toSQL"
+      "setUpHistory must be called before _save"
     );
 
     let newRow = this.id === undefined;
+    let history = undefined;
 
     if (this.id !== undefined) {
       let result = await trx.query(
@@ -146,6 +149,23 @@ class HistoricScaffoldModel extends SlormModel {
             result.rows[0][attr]
           );
         }
+      }
+
+      result = await trx.query(
+        joinSqlTemplates(
+          [
+            sql`SELECT * FROM`,
+            sql`${this.constructor._history.getTableName()}`,
+            sql`WHERE "id" =`,
+            sql`${this.constructor._history.id.toDb(this.id)}`,
+            sql`ORDER BY updated_at DESC LIMIT 1`,
+          ],
+          sql` `
+        )
+      );
+
+      if (result.rowCount !== 0) {
+        history = new this.constructor._history(result.rows[0]);
       }
     }
 
@@ -209,6 +229,10 @@ class HistoricScaffoldModel extends SlormModel {
         }
       }
 
+      /*if (history !== undefined && override) {
+        this.updated_at = new Date();
+      }*/
+
       await trx.query(
         joinSqlTemplates(
           [
@@ -234,6 +258,15 @@ class HistoricScaffoldModel extends SlormModel {
         this[attr] = value;
       }
 
+      if (history !== undefined) {
+        history.hid = await this.constructor._history.hid.default();
+        history.deleted = false;
+        history.updated_at = this.updated_at;
+        history.updated_by = author !== undefined ? author : null;
+
+        await trx.query(history.toSQL());
+      }
+
       return true;
     } else {
       let columns = [
@@ -252,6 +285,17 @@ class HistoricScaffoldModel extends SlormModel {
           (x) => this.constructor._history.hid.toDb(x),
         ],
       ];
+
+      if (author !== undefined) {
+        assert(uuid.validate(author), "author must be a valid UUID");
+
+        historyColumns.push([
+          "updated_by",
+          sql`"updated_by"`,
+          author,
+          (x) => this.constructor._history.updated_by.toDb(x),
+        ]);
+      }
 
       for (let attr in this.constructor) {
         if (this.constructor[attr] instanceof SlormField) {
@@ -326,10 +370,157 @@ class HistoricScaffoldModel extends SlormModel {
         )
       );
 
-      this.updated_at = columns[0][2];
+      this.updated_at = columns.filter((x) => x[0] === "updated_at")[0][2];
 
       return true;
     }
+  }
+
+  async _delete(trx, author) {
+    assert(
+      this.constructor._history !== undefined,
+      "setUpHistory must be called before _delete"
+    );
+
+    if (this.id === undefined) return false;
+
+    let result = await trx.query(
+      joinSqlTemplates(
+        [
+          sql`SELECT count(*) FROM`,
+          sql`${this.constructor.getTableName()}`,
+          sql`WHERE "id" =`,
+          sql`${this.constructor.id.toDb(this.id)}`,
+        ],
+        sql` `
+      )
+    );
+
+    if (parseInt(result.rows[0].count) === 0) return false;
+
+    this.updated_at = new Date();
+    await this._save(trx, true, author);
+
+    let historyColumns = [
+      [
+        "hid",
+        sql`"hid"`,
+        await this.constructor._history.hid.default(),
+        (x) => this.constructor._history.hid.toDb(x),
+      ],
+      [
+        "deleted",
+        sql`"deleted"`,
+        true,
+        (x) => this.constructor._history.deleted.toDb(x),
+      ],
+    ];
+
+    if (author !== undefined) {
+      assert(uuid.validate(author), "author must be a valid UUID");
+
+      historyColumns.push([
+        "updated_by",
+        sql`"updated_by"`,
+        author,
+        (x) => this.constructor._history.updated_by.toDb(x),
+      ]);
+    }
+
+    for (let attr in this.constructor) {
+      if (this.constructor[attr] instanceof SlormField) {
+        let value = this[attr];
+        value = value === undefined ? null : value;
+
+        historyColumns.push([
+          attr,
+          this.constructor[attr].columnName !== undefined
+            ? this.constructor[attr].columnName
+            : sql`${sql.identifier([attr])}`,
+          value,
+          (x) => this.constructor[attr].toDb(x),
+        ]);
+      }
+    }
+
+    await trx.query(
+      joinSqlTemplates(
+        [
+          sql`DELETE FROM ${this.constructor.getTableName()} WHERE "id" =`,
+          sql`${this.constructor.id.toDb(this.id)}`,
+        ],
+        sql` `
+      )
+    );
+    await trx.query(
+      joinSqlTemplates(
+        [
+          sql`INSERT INTO ${this.constructor._history.getTableName()} (`,
+          joinSqlTemplates(
+            historyColumns.map((x) => x[1]),
+            sql`, `
+          ),
+          sql`) VALUES (`,
+          joinSqlTemplates(
+            historyColumns.map((x) => x[3](x[2])),
+            sql`, `
+          ),
+          sql`)`,
+        ],
+        sql` `
+      )
+    );
+
+    return true;
+  }
+
+  static async _undelete(trx, id, author) {
+    assert(uuid.validate(id), "id must be a valid UUID");
+
+    if (author !== undefined) {
+      assert(uuid.validate(author), "author must be a valid UUID");
+    }
+
+    let result = await trx.query(
+      joinSqlTemplates(
+        [
+          sql`SELECT count(*) FROM`,
+          sql`${this.getTableName()}`,
+          sql`WHERE "id" =`,
+          sql`${this.id.toDb(id)}`,
+        ],
+        sql` `
+      )
+    );
+
+    if (parseInt(result.rows[0].count) > 0) return;
+
+    result = await trx.query(
+      joinSqlTemplates(
+        [
+          sql`SELECT * FROM`,
+          sql`${this._history.getTableName()}`,
+          sql`WHERE "id" =`,
+          sql`${this._history.id.toDb(id)}`,
+          sql`ORDER BY updated_at DESC LIMIT 1`,
+        ],
+        sql` `
+      )
+    );
+
+    if (result.rowCount === 0) return;
+
+    let undeleted = result.rows[0];
+
+    delete undeleted.deleted;
+    delete undeleted.hid;
+    delete undeleted.updated_by;
+
+    undeleted = new this(undeleted);
+
+    await undeleted._save(trx, true, author);
+
+    return undeleted;
   }
 }
 

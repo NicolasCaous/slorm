@@ -6,7 +6,7 @@
   "scripts": {
     "coverage": "npx nyc report --reporter=text-lcov | coveralls",
     "stryker": "npx stryker run",
-    "test": "npx nyc --reporter=html --reporter=text mocha --check-leaks --require test/_helper.js"
+    "test": "npx nyc --reporter=html --reporter=text mocha --recursive --check-leaks --require test/helper.js"
   },
   "repository": {
     "type": "git",

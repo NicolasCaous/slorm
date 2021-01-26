@@ -6,7 +6,8 @@ module.exports = {
   reporters: ["html", "clear-text", "progress", "dashboard"],
   testRunner: "mocha",
   mochaOptions: {
-    require: ["test/_helper.js"],
+    spec: ["test/**/*.test.js"],
+    require: ["test/helper.js"],
   },
   coverageAnalysis: "perTest",
 };

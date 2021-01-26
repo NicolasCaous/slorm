@@ -193,7 +193,7 @@ class ScaffoldModel extends SlormModel {
         )
       );
 
-      this.updated_at = columns[0][2];
+      this.updated_at = columns.filter((x) => x[0] === "updated_at")[0][2];
 
       return true;
     }

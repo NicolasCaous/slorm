@@ -4,6 +4,7 @@ const assert = require("assert");
 const { sql } = require("slonik");
 
 const escape = require("./utils/escape");
+const isObject = require("./utils/is_object");
 const joinSqlTemplates = require("./utils/join_sql_templates");
 const SlormConstraint = require("./constraints/SlormConstraint");
 const SlormField = require("./fields/SlormField");
@@ -13,6 +14,7 @@ class SlormModel {
 
   constructor(args) {
     args = args !== undefined ? args : {};
+    assert(isObject(args), "args must be an object");
 
     let columnMapping = {};
 
@@ -103,6 +105,37 @@ class SlormModel {
         sql` `
       ),
     ];
+  }
+
+  toSQL() {
+    let fields = [];
+
+    for (let attr in this) {
+      if (attr in this.constructor) {
+        if (this.constructor[attr] instanceof SlormField)
+          fields.push({
+            value: this.constructor[attr].toDb(this[attr]),
+            columnName:
+              this.constructor[attr].columnName !== undefined
+                ? this.constructor[attr].columnName
+                : sql`${sql.identifier([attr])}`,
+          });
+      }
+    }
+
+    return joinSqlTemplates([
+      sql`INSERT INTO ${this.constructor.getTableName()} (`,
+      joinSqlTemplates(
+        fields.map((field) => field.columnName),
+        sql`, `
+      ),
+      sql`) VALUES (`,
+      joinSqlTemplates(
+        fields.map((field) => field.value),
+        sql`, `
+      ),
+      sql`)`,
+    ]);
   }
 }
 
