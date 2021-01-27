@@ -23,7 +23,6 @@ class ScaffoldModel extends SlormModel {
 
   async _save(trx, override) {
     let newRow = this.id === undefined;
-
     if (this.id !== undefined) {
       let result = await trx.query(
         joinSqlTemplates(
@@ -40,163 +39,98 @@ class ScaffoldModel extends SlormModel {
       newRow = result.rowCount === 0;
 
       if (!newRow) {
-        this.#dbTruth = {};
-        for (let attr in result.rows[0]) {
-          this.#dbTruth[attr] = this.constructor[attr].fromDb(
-            result.rows[0][attr]
-          );
-        }
+        this.#dbTruth = new this.constructor(result.rows[0]);
       }
     }
 
-    if (newRow) {
-      let columns = [
-        [
-          "updated_at",
-          sql`"updated_at"`,
-          new Date(),
-          (x) => this.constructor.updated_at.toDb(x),
-        ],
-        [
-          "created_at",
-          sql`"created_at"`,
-          new Date(),
-          (x) => this.constructor.created_at.toDb(x),
-        ],
-      ];
-
-      for (let attr in this.constructor) {
-        if (this.constructor[attr] instanceof SlormField) {
-          let value = this[attr];
-
-          if (
-            value === undefined &&
-            typeof this.constructor[attr].default === "function"
-          ) {
-            value = await this.constructor[attr].default(this);
-          }
-
-          if (value !== undefined)
-            columns.push([
-              attr,
-              this.constructor[attr].columnName !== undefined
-                ? this.constructor[attr].columnName
-                : sql`${sql.identifier([attr])}`,
-              value,
-              (x) => this.constructor[attr].toDb(x),
-            ]);
-        }
-      }
-
+    for (let attr in this.constructor)
       if (
-        columns.filter((x) => x[0] === "updated_at" || x[0] === "created_at")
-          .length > 2
-      ) {
+        this.constructor[attr] instanceof SlormField &&
+        this[attr] === undefined &&
+        typeof this.constructor[attr].default === "function"
+      )
+        this[attr] = await this.constructor[attr].default(this);
+
+    if (newRow) {
+      let now = new Date();
+
+      if (this.updated_at !== undefined)
         assert(
           override === true,
-          "editing updated_at or created_at is forbidden without override flag"
+          "editing updated_at is forbidden without override flag"
         );
+      else this.updated_at = now;
 
-        let removeUpdatedAt =
-          columns.filter((x) => x[0] === "updated_at").length === 2;
-        let removeCreatedAt =
-          columns.filter((x) => x[0] === "created_at").length === 2;
+      if (this.created_at !== undefined)
+        assert(
+          override === true,
+          "editing created_at is forbidden without override flag"
+        );
+      else this.created_at = now;
 
-        if (removeUpdatedAt && removeCreatedAt) columns.splice(0, 2);
-        else {
-          if (removeUpdatedAt) columns.splice(0, 1);
-          if (removeCreatedAt) columns.splice(1, 1);
-        }
-      }
-
-      await trx.query(
-        joinSqlTemplates(
-          [
-            sql`INSERT INTO ${this.constructor.getTableName()} (`,
-            joinSqlTemplates(
-              columns.map((x) => x[1]),
-              sql`, `
-            ),
-            sql`) VALUES (`,
-            joinSqlTemplates(
-              columns.map((x) => x[3](x[2])),
-              sql`, `
-            ),
-            sql`)`,
-          ],
-          sql` `
-        )
-      );
-
-      for (let i in columns) {
-        let attr = columns[i][0];
-        let value = columns[i][2];
-        this[attr] = value;
-      }
+      await trx.query(this.toInsertSQL());
 
       return true;
     } else {
-      let columns = [
-        [
-          "updated_at",
-          sql`"updated_at"`,
-          new Date(),
-          (x) => this.constructor.updated_at.toDb(x),
-        ],
-      ];
-
-      for (let attr in this.constructor) {
-        if (this.constructor[attr] instanceof SlormField) {
-          let value = this[attr];
-          value = value === undefined ? null : value;
-
-          if (this.constructor[attr].isDifferent(value, this.#dbTruth[attr])) {
-            columns.push([
-              attr,
-              this.constructor[attr].columnName !== undefined
-                ? this.constructor[attr].columnName
-                : sql`${sql.identifier([attr])}`,
-              value,
-              (x) => this.constructor[attr].toDb(x),
-            ]);
-          }
-        }
-      }
-
-      if (columns.length === 1) return false;
+      if (!this.isDirty(this.#dbTruth)) return false;
 
       if (
-        columns.filter((x) => x[0] === "updated_at" || x[0] === "created_at")
-          .length > 1
-      ) {
+        this.constructor.updated_at.isDifferent(
+          this.updated_at,
+          this.#dbTruth.updated_at
+        )
+      )
         assert(
           override === true,
-          "editing updated_at or created_at is forbidden without override flag"
+          "editing updated_at is forbidden without override flag"
+        );
+      else this.updated_at = new Date();
+
+      if (
+        this.constructor.created_at.isDifferent(
+          this.created_at,
+          this.#dbTruth.created_at
+        )
+      )
+        assert(
+          override === true,
+          "editing created_at is forbidden without override flag"
         );
 
-        if (columns.filter((x) => x[0] === "updated_at").length === 2)
-          columns.splice(0, 1);
-      }
-
-      await trx.query(
-        joinSqlTemplates(
-          [
-            sql`UPDATE ${this.constructor.getTableName()} SET`,
-            joinSqlTemplates(
-              columns.map((x) => sql`${x[1]} = ${x[3](x[2])}`),
-              sql`, `
-            ),
-            sql`WHERE "id" =`,
-            sql`${this.constructor.id.toDb(this.id)}`,
-          ],
-          sql` `
-        )
-      );
-
-      this.updated_at = columns.filter((x) => x[0] === "updated_at")[0][2];
+      await trx.query(this.toUpdateSQL(this.#dbTruth));
 
       return true;
     }
+  }
+
+  async _delete(trx) {
+    if (this.id === undefined) return false;
+
+    let result = await trx.query(
+      joinSqlTemplates(
+        [
+          sql`SELECT count(*) FROM`,
+          sql`${this.constructor.getTableName()}`,
+          sql`WHERE "id" =`,
+          sql`${this.constructor.id.toDb(this.id)}`,
+        ],
+        sql` `
+      )
+    );
+
+    if (parseInt(result.rows[0].count) === 0) return false;
+
+    await trx.query(
+      joinSqlTemplates(
+        [
+          sql`DELETE FROM ${this.constructor.getTableName()} WHERE "id" =`,
+          sql`${this.constructor.id.toDb(this.id)}`,
+        ],
+        sql` `
+      )
+    );
+
+    return true;
   }
 }
 
