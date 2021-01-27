@@ -59,63 +59,7 @@ class HistoricScaffoldModel extends SlormModel {
   }
 
   static toSQL(args) {
-    if (args === undefined) args = {};
-    assert(typeof args === "object", "args must be an object");
-
-    args.temporary = "temporary" in args ? args.temporary : false;
-    assert(typeof args.temporary === "boolean", "temporary must be a boolean");
-
-    args.unlogged = "unlogged" in args ? args.unlogged : false;
-    assert(typeof args.unlogged === "boolean", "unlogged must be a boolean");
-
-    args.ifNotExists = "ifNotExists" in args ? args.ifNotExists : false;
-    assert(
-      typeof args.ifNotExists === "boolean",
-      "ifNotExists must be a boolean"
-    );
-
-    assert(
-      this._history !== undefined,
-      "setUpHistory must be called before toSQL"
-    );
-
-    let columns = [];
-    let constraints = [];
-
-    for (let attr in this._history)
-      if (this._history[attr] instanceof SlormField) columns.push(attr);
-      else if (this._history[attr] instanceof SlormConstraint)
-        constraints.push(attr);
-
-    columns = joinSqlTemplates(
-      columns.map((attr) =>
-        this._history[attr].toSQL(sql`${sql.identifier([attr])}`)
-      ),
-      sql`, `
-    );
-    constraints = joinSqlTemplates(
-      constraints.map((attr) =>
-        this._history[attr].toSQL(sql`${sql.identifier([attr])}`)
-      ),
-      sql`, `
-    );
-
-    return [
-      ...super.toSQL(args),
-      joinSqlTemplates(
-        [
-          sql`CREATE`,
-          sql`${args.temporary ? sql`TEMPORARY` : sql``}`,
-          sql`${args.unlogged ? sql`UNLOGGED` : sql``}`,
-          sql`TABLE`,
-          sql`${args.ifNotExists ? sql`IF NOT EXISTS` : sql``}`,
-          sql`${this._history.getTableName()} (`,
-          sql`${joinSqlTemplates([columns, constraints], sql`, `)}`,
-          sql`)`,
-        ],
-        sql` `
-      ),
-    ];
+    return [...super.toSQL(args), ...this._history.toSQL(args)];
   }
 
   async _save(trx, override, author) {
@@ -183,6 +127,8 @@ class HistoricScaffoldModel extends SlormModel {
 
       return true;
     } else {
+      if (!this.isDirty(this.#dbTruth)) return false;
+
       if (
         this.constructor.updated_at.isDifferent(
           this.updated_at,
@@ -206,19 +152,15 @@ class HistoricScaffoldModel extends SlormModel {
           "editing created_at is forbidden without override flag"
         );
 
-      if (this.isDirty(this.#dbTruth)) {
-        await trx.query(this.toUpdateSQL(this.#dbTruth));
+      await trx.query(this.toUpdateSQL(this.#dbTruth));
 
-        let history = new this.constructor._history(this);
-        history.hid = await this.constructor._history.hid.default();
-        history.deleted = false;
-        history.updated_by = author !== undefined ? author : null;
+      let history = new this.constructor._history(this);
+      history.hid = await this.constructor._history.hid.default();
+      history.deleted = false;
+      history.updated_by = author !== undefined ? author : null;
 
-        await trx.query(history.toInsertSQL());
-        return true;
-      } else {
-        return false;
-      }
+      await trx.query(history.toInsertSQL());
+      return true;
     }
   }
 
@@ -247,7 +189,6 @@ class HistoricScaffoldModel extends SlormModel {
     if (parseInt(result.rows[0].count) === 0) return false;
 
     this.updated_at = new Date();
-    await this._save(trx, true, author);
 
     let history = new this.constructor._history(this);
     history.hid = await this.constructor._history.hid.default();
@@ -312,6 +253,7 @@ class HistoricScaffoldModel extends SlormModel {
 
     undeleted = new this(undeleted);
 
+    undeleted.updated_at = new Date();
     await undeleted._save(trx, true, author);
 
     return undeleted;

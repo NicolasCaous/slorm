@@ -14,7 +14,10 @@ class SlormModel {
 
   constructor(args) {
     args = args !== undefined ? args : {};
-    assert(isObject(args), "args must be an object");
+    assert(
+      isObject(args) || args instanceof SlormModel,
+      "args must be an object or a SlormModel instance"
+    );
 
     let columnMapping = {};
 
@@ -146,7 +149,32 @@ class SlormModel {
     ]);
   }
 
-  toUpdateSQL(oldAttrs) {}
+  toUpdateSQL(oldAttrs) {
+    let fields = [];
+
+    for (let attr in this.constructor)
+      if (
+        this.constructor[attr] instanceof SlormField &&
+        this.constructor[attr].isDifferent(this[attr], oldAttrs[attr])
+      )
+        fields.push({
+          value: this.constructor[attr].toDb(this[attr]),
+          columnName:
+            this.constructor[attr].columnName !== undefined
+              ? this.constructor[attr].columnName
+              : sql`${sql.identifier([attr])}`,
+        });
+
+    return joinSqlTemplates([
+      sql`UPDATE ${this.constructor.getTableName()} SET `,
+      joinSqlTemplates(
+        fields.map((field) => sql`${field.columnName} = ${field.value}`),
+        sql`, `
+      ),
+      sql`WHERE "id" =`,
+      sql`${this.constructor.id.toDb(this.id)}`,
+    ]);
+  }
 }
 
 module.exports = SlormModel;
