@@ -123,10 +123,10 @@ class HistoricScaffoldModel extends SlormModel {
       this.constructor._history !== undefined,
       "setUpHistory must be called before _save"
     );
+    if (author !== undefined)
+      assert(uuid.validate(author), "author must be a valid UUID");
 
     let newRow = this.id === undefined;
-    let history = undefined;
-
     if (this.id !== undefined) {
       let result = await trx.query(
         joinSqlTemplates(
@@ -143,236 +143,82 @@ class HistoricScaffoldModel extends SlormModel {
       newRow = result.rowCount === 0;
 
       if (!newRow) {
-        this.#dbTruth = {};
-        for (let attr in result.rows[0]) {
-          this.#dbTruth[attr] = this.constructor[attr].fromDb(
-            result.rows[0][attr]
-          );
-        }
-      }
-
-      result = await trx.query(
-        joinSqlTemplates(
-          [
-            sql`SELECT * FROM`,
-            sql`${this.constructor._history.getTableName()}`,
-            sql`WHERE "id" =`,
-            sql`${this.constructor._history.id.toDb(this.id)}`,
-            sql`ORDER BY updated_at DESC LIMIT 1`,
-          ],
-          sql` `
-        )
-      );
-
-      if (result.rowCount !== 0) {
-        history = new this.constructor._history(result.rows[0]);
+        this.#dbTruth = new this.constructor(result.rows[0]);
       }
     }
 
-    if (newRow) {
-      let columns = [
-        [
-          "updated_at",
-          sql`"updated_at"`,
-          new Date(),
-          (x) => this.constructor.updated_at.toDb(x),
-        ],
-        [
-          "created_at",
-          sql`"created_at"`,
-          new Date(),
-          (x) => this.constructor.created_at.toDb(x),
-        ],
-      ];
-
-      for (let attr in this.constructor) {
-        if (this.constructor[attr] instanceof SlormField) {
-          let value = this[attr];
-
-          if (
-            value === undefined &&
-            typeof this.constructor[attr].default === "function"
-          ) {
-            value = await this.constructor[attr].default(this);
-          }
-
-          if (value !== undefined)
-            columns.push([
-              attr,
-              this.constructor[attr].columnName !== undefined
-                ? this.constructor[attr].columnName
-                : sql`${sql.identifier([attr])}`,
-              value,
-              (x) => this.constructor[attr].toDb(x),
-            ]);
-        }
-      }
-
+    for (let attr in this.constructor)
       if (
-        columns.filter((x) => x[0] === "updated_at" || x[0] === "created_at")
-          .length > 2
-      ) {
+        this.constructor[attr] instanceof SlormField &&
+        this[attr] === undefined &&
+        typeof this.constructor[attr].default === "function"
+      )
+        this[attr] = await this.constructor[attr].default(this);
+
+    if (newRow) {
+      let now = new Date();
+
+      if (this.updated_at !== undefined)
         assert(
           override === true,
-          "editing updated_at or created_at is forbidden without override flag"
+          "editing updated_at is forbidden without override flag"
         );
+      else this.updated_at = now;
 
-        let removeUpdatedAt =
-          columns.filter((x) => x[0] === "updated_at").length === 2;
-        let removeCreatedAt =
-          columns.filter((x) => x[0] === "created_at").length === 2;
+      if (this.created_at !== undefined)
+        assert(
+          override === true,
+          "editing created_at is forbidden without override flag"
+        );
+      else this.created_at = now;
 
-        if (removeUpdatedAt && removeCreatedAt) columns.splice(0, 2);
-        else {
-          if (removeUpdatedAt) columns.splice(0, 1);
-          if (removeCreatedAt) columns.splice(1, 1);
-        }
-      }
+      await trx.query(this.toInsertSQL());
 
-      /*if (history !== undefined && override) {
-        this.updated_at = new Date();
-      }*/
+      let history = new this.constructor._history(this);
+      history.hid = await this.constructor._history.hid.default();
+      history.deleted = false;
+      history.updated_by = author !== undefined ? author : null;
 
-      await trx.query(
-        joinSqlTemplates(
-          [
-            sql`INSERT INTO ${this.constructor.getTableName()} (`,
-            joinSqlTemplates(
-              columns.map((x) => x[1]),
-              sql`, `
-            ),
-            sql`) VALUES (`,
-            joinSqlTemplates(
-              columns.map((x) => x[3](x[2])),
-              sql`, `
-            ),
-            sql`)`,
-          ],
-          sql` `
-        )
-      );
-
-      for (let i in columns) {
-        let attr = columns[i][0];
-        let value = columns[i][2];
-        this[attr] = value;
-      }
-
-      if (history !== undefined) {
-        history.hid = await this.constructor._history.hid.default();
-        history.deleted = false;
-        history.updated_at = this.updated_at;
-        history.updated_by = author !== undefined ? author : null;
-
-        await trx.query(history.toSQL());
-      }
+      await trx.query(history.toInsertSQL());
 
       return true;
     } else {
-      let columns = [
-        [
-          "updated_at",
-          sql`"updated_at"`,
-          new Date(),
-          (x) => this.constructor.updated_at.toDb(x),
-        ],
-      ];
-      let historyColumns = [
-        [
-          "hid",
-          sql`"hid"`,
-          await this.constructor._history.hid.default(),
-          (x) => this.constructor._history.hid.toDb(x),
-        ],
-      ];
-
-      if (author !== undefined) {
-        assert(uuid.validate(author), "author must be a valid UUID");
-
-        historyColumns.push([
-          "updated_by",
-          sql`"updated_by"`,
-          author,
-          (x) => this.constructor._history.updated_by.toDb(x),
-        ]);
-      }
-
-      for (let attr in this.constructor) {
-        if (this.constructor[attr] instanceof SlormField) {
-          let value = this[attr];
-          value = value === undefined ? null : value;
-
-          historyColumns.push([
-            attr,
-            this.constructor[attr].columnName !== undefined
-              ? this.constructor[attr].columnName
-              : sql`${sql.identifier([attr])}`,
-            this.#dbTruth[attr],
-            (x) => this.constructor[attr].toDb(x),
-          ]);
-          if (this.constructor[attr].isDifferent(value, this.#dbTruth[attr]))
-            columns.push([
-              attr,
-              this.constructor[attr].columnName !== undefined
-                ? this.constructor[attr].columnName
-                : sql`${sql.identifier([attr])}`,
-              value,
-              (x) => this.constructor[attr].toDb(x),
-            ]);
-        }
-      }
-
-      if (columns.length === 1) return false;
-
       if (
-        columns.filter((x) => x[0] === "updated_at" || x[0] === "created_at")
-          .length > 1
-      ) {
+        this.constructor.updated_at.isDifferent(
+          this.updated_at,
+          this.#dbTruth.updated_at
+        )
+      )
         assert(
           override === true,
-          "editing updated_at or created_at is forbidden without override flag"
+          "editing updated_at is forbidden without override flag"
+        );
+      else this.updated_at = new Date();
+
+      if (
+        this.constructor.created_at.isDifferent(
+          this.created_at,
+          this.#dbTruth.created_at
+        )
+      )
+        assert(
+          override === true,
+          "editing created_at is forbidden without override flag"
         );
 
-        if (columns.filter((x) => x[0] === "updated_at").length === 2)
-          columns.splice(0, 1);
+      if (this.isDirty(this.#dbTruth)) {
+        await trx.query(this.toUpdateSQL(this.#dbTruth));
+
+        let history = new this.constructor._history(this);
+        history.hid = await this.constructor._history.hid.default();
+        history.deleted = false;
+        history.updated_by = author !== undefined ? author : null;
+
+        await trx.query(history.toInsertSQL());
+        return true;
+      } else {
+        return false;
       }
-
-      await trx.query(
-        joinSqlTemplates(
-          [
-            sql`UPDATE ${this.constructor.getTableName()} SET`,
-            joinSqlTemplates(
-              columns.map((x) => sql`${x[1]} = ${x[3](x[2])}`),
-              sql`, `
-            ),
-            sql`WHERE "id" =`,
-            sql`${this.constructor.id.toDb(this.id)}`,
-          ],
-          sql` `
-        )
-      );
-      await trx.query(
-        joinSqlTemplates(
-          [
-            sql`INSERT INTO ${this.constructor._history.getTableName()} (`,
-            joinSqlTemplates(
-              historyColumns.map((x) => x[1]),
-              sql`, `
-            ),
-            sql`) VALUES (`,
-            joinSqlTemplates(
-              historyColumns.map((x) => x[3](x[2])),
-              sql`, `
-            ),
-            sql`)`,
-          ],
-          sql` `
-        )
-      );
-
-      this.updated_at = columns.filter((x) => x[0] === "updated_at")[0][2];
-
-      return true;
     }
   }
 
@@ -381,6 +227,8 @@ class HistoricScaffoldModel extends SlormModel {
       this.constructor._history !== undefined,
       "setUpHistory must be called before _delete"
     );
+    if (author !== undefined)
+      assert(uuid.validate(author), "author must be a valid UUID");
 
     if (this.id === undefined) return false;
 
@@ -401,47 +249,10 @@ class HistoricScaffoldModel extends SlormModel {
     this.updated_at = new Date();
     await this._save(trx, true, author);
 
-    let historyColumns = [
-      [
-        "hid",
-        sql`"hid"`,
-        await this.constructor._history.hid.default(),
-        (x) => this.constructor._history.hid.toDb(x),
-      ],
-      [
-        "deleted",
-        sql`"deleted"`,
-        true,
-        (x) => this.constructor._history.deleted.toDb(x),
-      ],
-    ];
-
-    if (author !== undefined) {
-      assert(uuid.validate(author), "author must be a valid UUID");
-
-      historyColumns.push([
-        "updated_by",
-        sql`"updated_by"`,
-        author,
-        (x) => this.constructor._history.updated_by.toDb(x),
-      ]);
-    }
-
-    for (let attr in this.constructor) {
-      if (this.constructor[attr] instanceof SlormField) {
-        let value = this[attr];
-        value = value === undefined ? null : value;
-
-        historyColumns.push([
-          attr,
-          this.constructor[attr].columnName !== undefined
-            ? this.constructor[attr].columnName
-            : sql`${sql.identifier([attr])}`,
-          value,
-          (x) => this.constructor[attr].toDb(x),
-        ]);
-      }
-    }
+    let history = new this.constructor._history(this);
+    history.hid = await this.constructor._history.hid.default();
+    history.deleted = true;
+    history.updated_by = author !== undefined ? author : null;
 
     await trx.query(
       joinSqlTemplates(
@@ -452,24 +263,7 @@ class HistoricScaffoldModel extends SlormModel {
         sql` `
       )
     );
-    await trx.query(
-      joinSqlTemplates(
-        [
-          sql`INSERT INTO ${this.constructor._history.getTableName()} (`,
-          joinSqlTemplates(
-            historyColumns.map((x) => x[1]),
-            sql`, `
-          ),
-          sql`) VALUES (`,
-          joinSqlTemplates(
-            historyColumns.map((x) => x[3](x[2])),
-            sql`, `
-          ),
-          sql`)`,
-        ],
-        sql` `
-      )
-    );
+    await trx.query(history.toInsertSQL());
 
     return true;
   }

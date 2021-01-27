@@ -107,21 +107,29 @@ class SlormModel {
     ];
   }
 
-  toSQL() {
+  isDirty(oldAttrs) {
+    for (let attr in this.constructor)
+      if (this.constructor[attr] instanceof SlormField)
+        if (this.constructor[attr].isDifferent(this[attr], oldAttrs[attr]))
+          return true;
+    return false;
+  }
+
+  toInsertSQL() {
     let fields = [];
 
-    for (let attr in this) {
-      if (attr in this.constructor) {
-        if (this.constructor[attr] instanceof SlormField)
-          fields.push({
-            value: this.constructor[attr].toDb(this[attr]),
-            columnName:
-              this.constructor[attr].columnName !== undefined
-                ? this.constructor[attr].columnName
-                : sql`${sql.identifier([attr])}`,
-          });
-      }
-    }
+    for (let attr in this)
+      if (
+        attr in this.constructor &&
+        this.constructor[attr] instanceof SlormField
+      )
+        fields.push({
+          value: this.constructor[attr].toDb(this[attr]),
+          columnName:
+            this.constructor[attr].columnName !== undefined
+              ? this.constructor[attr].columnName
+              : sql`${sql.identifier([attr])}`,
+        });
 
     return joinSqlTemplates([
       sql`INSERT INTO ${this.constructor.getTableName()} (`,
@@ -137,6 +145,8 @@ class SlormModel {
       sql`)`,
     ]);
   }
+
+  toUpdateSQL(oldAttrs) {}
 }
 
 module.exports = SlormModel;
