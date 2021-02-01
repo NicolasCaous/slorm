@@ -59,10 +59,14 @@ class HistoricScaffoldModel extends SlormModel {
   }
 
   static toSQL(args) {
+    assert(
+      this._history !== undefined,
+      "setUpHistory must be called before toSQL"
+    );
     return [...super.toSQL(args), ...this._history.toSQL(args)];
   }
 
-  async _save(trx, override, author) {
+  async _save(trx, author, override) {
     assert(
       this.constructor._history !== undefined,
       "setUpHistory must be called before _save"
@@ -102,32 +106,50 @@ class HistoricScaffoldModel extends SlormModel {
     if (newRow) {
       let now = new Date();
 
+      let removeUpdatedAt = false;
+      let removeCreatedAt = false;
+
       if (this.updated_at !== undefined)
         assert(
           override === true,
           "editing updated_at is forbidden without override flag"
         );
-      else this.updated_at = now;
+      else {
+        removeUpdatedAt = true;
+        this.updated_at = now;
+      }
 
       if (this.created_at !== undefined)
         assert(
           override === true,
           "editing created_at is forbidden without override flag"
         );
-      else this.created_at = now;
+      else {
+        removeCreatedAt = true;
+        this.created_at = now;
+      }
 
-      await trx.query(this.toInsertSQL());
+      try {
+        await trx.query(this.toInsertSQL());
 
-      let history = new this.constructor._history(this);
-      history.hid = await this.constructor._history.hid.default();
-      history.deleted = false;
-      history.updated_by = author !== undefined ? author : null;
+        let history = new this.constructor._history(this);
+        history.hid = await this.constructor._history.hid.default();
+        history.deleted = false;
+        history.updated_by = author !== undefined ? author : null;
 
-      await trx.query(history.toInsertSQL());
+        await trx.query(history.toInsertSQL());
+      } catch (err) {
+        if (removeUpdatedAt) delete this.updated_at;
+        if (removeCreatedAt) delete this.created_at;
+
+        throw err;
+      }
 
       return true;
     } else {
       if (!this.isDirty(this.#dbTruth)) return false;
+
+      let revertUpdatedAt = undefined;
 
       if (
         this.constructor.updated_at.isDifferent(
@@ -139,7 +161,10 @@ class HistoricScaffoldModel extends SlormModel {
           override === true,
           "editing updated_at is forbidden without override flag"
         );
-      else this.updated_at = new Date();
+      else {
+        revertUpdatedAt = this.updated_at;
+        this.updated_at = new Date();
+      }
 
       if (
         this.constructor.created_at.isDifferent(
@@ -152,14 +177,20 @@ class HistoricScaffoldModel extends SlormModel {
           "editing created_at is forbidden without override flag"
         );
 
-      await trx.query(this.toUpdateSQL(this.#dbTruth));
+      try {
+        await trx.query(this.toUpdateSQL(this.#dbTruth));
 
-      let history = new this.constructor._history(this);
-      history.hid = await this.constructor._history.hid.default();
-      history.deleted = false;
-      history.updated_by = author !== undefined ? author : null;
+        let history = new this.constructor._history(this);
+        history.hid = await this.constructor._history.hid.default();
+        history.deleted = false;
+        history.updated_by = author !== undefined ? author : null;
 
-      await trx.query(history.toInsertSQL());
+        await trx.query(history.toInsertSQL());
+      } catch (err) {
+        if (revertUpdatedAt !== undefined) this.updated_at = revertUpdatedAt;
+        throw err;
+      }
+
       return true;
     }
   }
@@ -210,6 +241,11 @@ class HistoricScaffoldModel extends SlormModel {
   }
 
   static async _undelete(trx, id, author) {
+    assert(
+      this._history !== undefined,
+      "setUpHistory must be called before _undelete"
+    );
+
     assert(uuid.validate(id), "id must be a valid UUID");
 
     if (author !== undefined) {

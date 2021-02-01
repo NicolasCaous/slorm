@@ -54,19 +54,28 @@ class ScaffoldModel extends SlormModel {
     if (newRow) {
       let now = new Date();
 
+      let removeUpdatedAt = false;
+      let removeCreatedAt = false;
+
       if (this.updated_at !== undefined)
         assert(
           override === true,
           "editing updated_at is forbidden without override flag"
         );
-      else this.updated_at = now;
+      else {
+        removeUpdatedAt = true;
+        this.updated_at = now;
+      }
 
       if (this.created_at !== undefined)
         assert(
           override === true,
           "editing created_at is forbidden without override flag"
         );
-      else this.created_at = now;
+      else {
+        removeCreatedAt = true;
+        this.created_at = now;
+      }
 
       await trx.query(this.toInsertSQL());
 
