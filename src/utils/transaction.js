@@ -9,7 +9,7 @@ exports.startTransaction = async (slonik, callback, isolationLevel) => {
         if (isolationLevel === undefined) isolationLevel = sql`SERIALIZABLE`;
         await trx.query(sql`SET TRANSACTION ISOLATION LEVEL ${isolationLevel}`);
 
-        await callback(trx);
+        return await callback(trx);
       })
   );
 };
